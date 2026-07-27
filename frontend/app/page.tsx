@@ -26,7 +26,7 @@ export default function Home() {
   const [inputUrl, setInputUrl] = useState<string>('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
   const [activeUrl, setActiveUrl] = useState<string>('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
   const [proxyBackendUrl, setProxyBackendUrl] = useState<string>(
-    process.env.NEXT_PUBLIC_PROXY_BACKEND_URL || 'https://m3u8-proxy-poc.onrender.com/api/proxy-m3u8'
+    process.env.NEXT_PUBLIC_PROXY_BACKEND_URL || 'http://localhost:5000/api/proxy-m3u8'
   );
 
   const handlePlaySubmit = (e: React.FormEvent) => {
