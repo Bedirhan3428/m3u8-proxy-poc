@@ -15,8 +15,8 @@ function buildProxyUrl(targetAbsoluteUrl: string, proxyBaseUrl: string): string 
     return targetAbsoluteUrl;
   }
 
-  // Route video segment chunks to /sw-segment (Service Worker - 0 Server Load)
-  return `${proxyBaseUrl}/sw-segment?url=${encodeURIComponent(targetAbsoluteUrl)}`;
+  // Route video segment chunks to /api/segment
+  return `${proxyBaseUrl}/api/segment?url=${encodeURIComponent(targetAbsoluteUrl)}`;
 }
 
 function rewriteM3u8Manifest(manifestText: string, targetUrl: string, proxyBaseUrl: string): string {
@@ -77,8 +77,9 @@ export async function GET(request: NextRequest) {
   const protocol = request.headers.get('x-forwarded-proto') || 'https';
   const proxyBaseUrl = `${protocol}://${host}`;
 
-  const fetchHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  // CLEAN HEADERS: Standard Browser Chrome User-Agent without datacenter/sec-fetch triggers
+  const fetchHeaders: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
     'Referer': `${parsedUrl.origin}/`
@@ -91,6 +92,7 @@ export async function GET(request: NextRequest) {
       cache: 'no-store'
     });
 
+    // Fallback if target CDN blocks with 403 or 404 (retry with full target URL as Referer)
     if (!res.ok && (res.status === 403 || res.status === 404 || res.status === 503)) {
       res = await fetch(targetUrl, {
         method: 'GET',
@@ -119,9 +121,7 @@ export async function GET(request: NextRequest) {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, OPTIONS, HEAD',
         'Access-Control-Allow-Headers': '*',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
       }
     });
 
