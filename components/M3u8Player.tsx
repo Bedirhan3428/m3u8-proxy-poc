@@ -56,7 +56,8 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
       return originalUrl;
     }
     if (isCorsGatewayMode) {
-      return `https://corsproxy.io/?${encodeURIComponent(originalUrl)}`;
+      // Use standard corsproxy.io with url= query param
+      return `https://corsproxy.io/?url=${encodeURIComponent(originalUrl)}`;
     }
     if (proxyEndpoint.includes('?url=')) {
       return `${proxyEndpoint}${encodeURIComponent(originalUrl)}`;
@@ -146,8 +147,10 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
           setStatus('error');
 
           let errorDesc = `HATA: ${data.details}`;
-          if (isDirectMode && (data.details.includes('manifestLoadError') || data.details.includes('fragLoadError'))) {
-            errorDesc += ` -> Hedef CDN sunucusu Access-Control-Allow-Origin başlığı vermediği için tarayıcınız isteği engelledi. Dilerseniz İstemci CORS Gateway veya API Proxy moduna geçebilirsiniz.`;
+          if (isCorsGatewayMode) {
+            errorDesc += ` -> CorsProxy tüneli bağlantısı sıfırlandı veya ISP engeline takıldı. Lütfen 'API Proxy Modu'na geçiniz.`;
+          } else if (isDirectMode && (data.details.includes('manifestLoadError') || data.details.includes('fragLoadError'))) {
+            errorDesc += ` -> Hedef CDN sunucusu Access-Control-Allow-Origin başlığı vermediği için tarayıcınız isteği engelledi. Dilerseniz API Proxy moduna geçebilirsiniz.`;
           }
 
           setErrorMessage(errorDesc);
