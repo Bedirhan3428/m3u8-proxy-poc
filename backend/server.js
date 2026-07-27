@@ -149,18 +149,26 @@ app.get('/api/proxy-m3u8', async (req, res) => {
     let response;
     if (agent) {
       try {
-        console.log(`[PROXY-ATTEMPT] Attempting fetch via proxy...`);
-        const proxyAxiosConfig = { ...axiosConfig, httpsAgent: agent, httpAgent: agent };
+        console.log(`[PROXY-ATTEMPT] Attempting fetch via proxy (4s timeout)...`);
+        const proxyAxiosConfig = {
+          ...axiosConfig,
+          timeout: 4000,
+          httpsAgent: agent,
+          httpAgent: agent
+        };
         response = await axios(proxyAxiosConfig);
         console.log(`[PROXY-SUCCESS] Successfully fetched manifest via proxy.`);
       } catch (proxyError) {
         console.warn(`[PROXY-FALLBACK] Proxy fetch failed (${proxyError.message}). Falling back to direct connection...`);
-        // Fallback to direct fetch without proxy agent
-        response = await axios(axiosConfig);
+        const directAxiosConfig = {
+          ...axiosConfig,
+          timeout: 5000
+        };
+        response = await axios(directAxiosConfig);
         console.log(`[DIRECT-SUCCESS] Successfully fetched manifest via direct connection fallback.`);
       }
     } else {
-      response = await axios(axiosConfig);
+      response = await axios({ ...axiosConfig, timeout: 6000 });
     }
 
     // Rewrite relative manifest URLs to absolute CDN URLs
