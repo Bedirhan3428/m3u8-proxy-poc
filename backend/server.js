@@ -1,8 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const { HttpsProxyAgent } = require('https-proxy-agent');
-const { SocksProxyAgent } = require('socks-proxy-agent');
 require('dotenv').config();
 
 const app = express();
@@ -11,77 +9,66 @@ const PORT = process.env.PORT || 5000;
 // Enable CORS for all incoming frontend requests
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
-  methods: ['GET', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Range']
+  methods: ['GET', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept']
 }));
 
 app.use(express.json());
 
 /**
- * Creates an HTTP/HTTPS or SOCKS agent depending on the configured proxy URL.
- * Supports:
- * - HTTP/HTTPS proxy: http://user:pass@host:port
- * - SOCKS5 proxy: socks5://user:pass@host:port or socks://host:port
+ * Helper to construct the proxy URL for a target link.
+ * If target ends with .m3u8, routes through /api/proxy-m3u8.
+ * Otherwise (e.g., .ts segments, keys), routes through /api/proxy-segment.
  */
-function createProxyAgent(proxyUrl) {
-  if (!proxyUrl || typeof proxyUrl !== 'string' || proxyUrl.trim() === '') {
-    return null;
-  }
+function buildProxyUrl(targetAbsoluteUrl, proxyBaseUrl) {
+  const urlObj = new URL(targetAbsoluteUrl);
+  const pathname = urlObj.pathname.toLowerCase();
 
-  const cleanUrl = proxyUrl.trim();
-  try {
-    if (cleanUrl.startsWith('socks5://') || cleanUrl.startsWith('socks://') || cleanUrl.startsWith('socks4://')) {
-      return new SocksProxyAgent(cleanUrl);
-    } else if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
-      return new HttpsProxyAgent(cleanUrl);
-    } else {
-      // Default to http proxy if protocol missing
-      return new HttpsProxyAgent(`http://${cleanUrl}`);
-    }
-  } catch (err) {
-    console.error('[PROXY-CONFIG-ERROR] Invalid proxy URL format:', err.message);
-    return null;
+  if (pathname.endsWith('.m3u8')) {
+    return `${proxyBaseUrl}/api/proxy-m3u8?url=${encodeURIComponent(targetAbsoluteUrl)}`;
+  } else {
+    return `${proxyBaseUrl}/api/proxy-segment?url=${encodeURIComponent(targetAbsoluteUrl)}`;
   }
 }
 
 /**
- * Rewrites relative URIs in an M3U8 manifest into full absolute target CDN URLs.
- * This guarantees that downstream .ts segment requests go directly to the target CDN,
- * fulfilling the backend bypass requirement for video chunk delivery.
+ * Rewrites relative and absolute URIs in an M3U8 manifest so that:
+ * - Sub/Variant playlists (.m3u8) point to /api/proxy-m3u8
+ * - Video chunks (.ts) and encryption keys point to /api/proxy-segment
  */
-function rewriteM3u8Manifest(manifestText, targetUrl) {
+function rewriteM3u8Manifest(manifestText, targetUrl, proxyBaseUrl) {
   const targetObj = new URL(targetUrl);
   const lines = manifestText.split(/\r?\n/);
 
   const rewrittenLines = lines.map(line => {
     const trimmed = line.trim();
-    // Empty lines or comment/tag lines starting with '#'
-    if (!trimmed || trimmed.startsWith('#')) {
-      // Handle URI attributes in tags like #EXT-X-KEY:METHOD=AES-128,URI="key.key"
+
+    if (!trimmed) return line;
+
+    // Handle tag lines
+    if (trimmed.startsWith('#')) {
+      // Rewrite URI attributes in tags like #EXT-X-KEY:METHOD=AES-128,URI="key.key"
       if (trimmed.includes('URI="')) {
         return line.replace(/URI="([^"]+)"/g, (match, p1) => {
-          if (p1.startsWith('http://') || p1.startsWith('https://') || p1.startsWith('data:')) {
-            return match;
-          }
+          if (p1.startsWith('data:')) return match;
           const absUrl = new URL(p1, targetObj).href;
-          return `URI="${absUrl}"`;
+          const proxiedKeyUrl = `${proxyBaseUrl}/api/proxy-segment?url=${encodeURIComponent(absUrl)}`;
+          return `URI="${proxiedKeyUrl}"`;
         });
       }
       return line;
     }
 
-    // If line is already absolute URL, keep it
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      return line;
-    }
-
-    // Resolve relative URL to absolute URL targeting original CDN
+    // Resolve relative URL to full target CDN URL
+    let absoluteTargetUrl;
     try {
-      const absoluteUrl = new URL(trimmed, targetObj).href;
-      return absoluteUrl;
+      absoluteTargetUrl = new URL(trimmed, targetObj).href;
     } catch (e) {
       return line;
     }
+
+    // Return proxied URL
+    return buildProxyUrl(absoluteTargetUrl, proxyBaseUrl);
   });
 
   return rewrittenLines.join('\n');
@@ -91,49 +78,38 @@ function rewriteM3u8Manifest(manifestText, targetUrl) {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    proxyConfigured: Boolean(process.env.PROXY_URL),
+    mode: 'Direct Proxy Tunnel',
     timestamp: new Date().toISOString()
   });
 });
 
 /**
  * GET /api/proxy-m3u8
- * Query params:
- *  - url (required): Target M3U8 stream URL
- *  - proxy (optional): Override proxy URL per-request (e.g., http://turkey-proxy:8080)
+ * Fetches M3U8 manifest and rewrites inner URLs to proxy through this backend.
  */
 app.get('/api/proxy-m3u8', async (req, res) => {
   const targetUrl = req.query.url;
 
   if (!targetUrl) {
-    return res.status(400).json({
-      error: 'Missing required query parameter "url". Example: /api/proxy-m3u8?url=https://example.com/stream.m3u8'
-    });
+    return res.status(400).json({ error: 'Missing required query parameter "url"' });
   }
 
-  // Validate URL format
   let parsedUrl;
   try {
     parsedUrl = new URL(targetUrl);
   } catch (err) {
-    return res.status(400).json({
-      error: 'Invalid target URL format provided.'
-    });
+    return res.status(400).json({ error: 'Invalid target URL format provided.' });
   }
 
-  // Determine proxy configuration (request override or environment default)
-  const proxyUrl = req.query.proxy || process.env.PROXY_URL;
-  const agent = createProxyAgent(proxyUrl);
+  // Construct dynamic proxy base URL (e.g. https://m3u8-proxy-poc.onrender.com)
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.get('host');
+  const proxyBaseUrl = `${protocol}://${host}`;
 
   console.log(`[MANIFEST-FETCH] Target: ${targetUrl}`);
-  if (proxyUrl) {
-    console.log(`[PROXY-ACTIVE] Using proxy: ${proxyUrl.replace(/:[^:@]+@/, ':****@')}`);
-  } else {
-    console.log(`[DIRECT-FETCH] No proxy configured, fetching directly.`);
-  }
 
   try {
-    const axiosConfig = {
+    const response = await axios({
       method: 'GET',
       url: targetUrl,
       headers: {
@@ -143,39 +119,13 @@ app.get('/api/proxy-m3u8', async (req, res) => {
         'Referer': `${parsedUrl.origin}/`
       },
       responseType: 'text',
-      timeout: 10000
-    };
+      timeout: 12000
+    });
 
-    let response;
-    if (agent) {
-      try {
-        console.log(`[PROXY-ATTEMPT] Attempting fetch via proxy (4s timeout)...`);
-        const proxyAxiosConfig = {
-          ...axiosConfig,
-          timeout: 4000,
-          httpsAgent: agent,
-          httpAgent: agent
-        };
-        response = await axios(proxyAxiosConfig);
-        console.log(`[PROXY-SUCCESS] Successfully fetched manifest via proxy.`);
-      } catch (proxyError) {
-        console.warn(`[PROXY-FALLBACK] Proxy fetch failed (${proxyError.message}). Falling back to direct connection...`);
-        const directAxiosConfig = {
-          ...axiosConfig,
-          timeout: 5000
-        };
-        response = await axios(directAxiosConfig);
-        console.log(`[DIRECT-SUCCESS] Successfully fetched manifest via direct connection fallback.`);
-      }
-    } else {
-      response = await axios({ ...axiosConfig, timeout: 6000 });
-    }
+    const rewrittenManifest = rewriteM3u8Manifest(response.data, targetUrl, proxyBaseUrl);
 
-    // Rewrite relative manifest URLs to absolute CDN URLs
-    const rewrittenManifest = rewriteM3u8Manifest(response.data, targetUrl);
-
-    // Set appropriate M3U8 headers
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -183,22 +133,96 @@ app.get('/api/proxy-m3u8', async (req, res) => {
     return res.status(200).send(rewrittenManifest);
 
   } catch (error) {
-    console.error(`[FETCH-ERROR] Failed to fetch target M3U8 manifest: ${error.message}`);
-
+    console.error(`[MANIFEST-ERROR] ${error.message}`);
     const statusCode = error.response ? error.response.status : 502;
     return res.status(statusCode).json({
       error: 'Failed to fetch M3U8 manifest',
       details: error.message,
-      code: error.code || 'FETCH_ERROR',
       targetUrl
     });
   }
 });
 
+/**
+ * GET /api/proxy-segment
+ * Streams .ts video chunks and media assets directly from target CDN to client.
+ */
+app.get('/api/proxy-segment', async (req, res) => {
+  const targetUrl = req.query.url;
+
+  if (!targetUrl) {
+    return res.status(400).json({ error: 'Missing required query parameter "url"' });
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(targetUrl);
+  } catch (err) {
+    return res.status(400).json({ error: 'Invalid target URL format provided.' });
+  }
+
+  // Forward Range header if client requests specific byte range
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Accept': '*/*',
+    'Referer': `${parsedUrl.origin}/`
+  };
+
+  if (req.headers.range) {
+    headers['Range'] = req.headers.range;
+  }
+
+  try {
+    const response = await axios({
+      method: 'GET',
+      url: targetUrl,
+      headers,
+      responseType: 'stream',
+      timeout: 20000
+    });
+
+    res.setHeader('Content-Type', response.headers['content-type'] || 'video/MP2T');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    if (response.headers['content-length']) {
+      res.setHeader('Content-Length', response.headers['content-length']);
+    }
+
+    if (response.headers['content-range']) {
+      res.setHeader('Content-Range', response.headers['content-range']);
+    }
+
+    if (response.headers['accept-ranges']) {
+      res.setHeader('Accept-Ranges', response.headers['accept-ranges']);
+    }
+
+    res.status(response.status);
+    response.data.pipe(res);
+
+    response.data.on('error', (err) => {
+      console.error(`[STREAM-PIPE-ERROR] ${err.message}`);
+      if (!res.headersSent) {
+        res.status(500).end();
+      }
+    });
+
+  } catch (error) {
+    console.error(`[SEGMENT-ERROR] Failed to stream segment ${targetUrl}: ${error.message}`);
+    if (!res.headersSent) {
+      const statusCode = error.response ? error.response.status : 502;
+      return res.status(statusCode).json({
+        error: 'Failed to stream video segment',
+        details: error.message,
+        targetUrl
+      });
+    }
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`====================================================`);
-  console.log(`🚀 M3U8 Proxy Backend running on http://localhost:${PORT}`);
-  console.log(`🔗 Endpoint: http://localhost:${PORT}/api/proxy-m3u8?url=<M3U8_URL>`);
-  console.log(`⚙️  Configured Proxy: ${process.env.PROXY_URL || 'None (Direct Mode)'}`);
+  console.log(`🚀 M3U8 Direct Proxy Backend running on port ${PORT}`);
+  console.log(`🔗 Manifest Endpoint: /api/proxy-m3u8?url=<URL>`);
+  console.log(`🎬 Segment Endpoint:  /api/proxy-segment?url=<URL>`);
   console.log(`====================================================`);
 });
