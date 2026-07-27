@@ -143,15 +143,25 @@ app.get('/api/proxy-m3u8', async (req, res) => {
         'Referer': `${parsedUrl.origin}/`
       },
       responseType: 'text',
-      timeout: 15000
+      timeout: 10000
     };
 
+    let response;
     if (agent) {
-      axiosConfig.httpsAgent = agent;
-      axiosConfig.httpAgent = agent;
+      try {
+        console.log(`[PROXY-ATTEMPT] Attempting fetch via proxy...`);
+        const proxyAxiosConfig = { ...axiosConfig, httpsAgent: agent, httpAgent: agent };
+        response = await axios(proxyAxiosConfig);
+        console.log(`[PROXY-SUCCESS] Successfully fetched manifest via proxy.`);
+      } catch (proxyError) {
+        console.warn(`[PROXY-FALLBACK] Proxy fetch failed (${proxyError.message}). Falling back to direct connection...`);
+        // Fallback to direct fetch without proxy agent
+        response = await axios(axiosConfig);
+        console.log(`[DIRECT-SUCCESS] Successfully fetched manifest via direct connection fallback.`);
+      }
+    } else {
+      response = await axios(axiosConfig);
     }
-
-    const response = await axios(axiosConfig);
 
     // Rewrite relative manifest URLs to absolute CDN URLs
     const rewrittenManifest = rewriteM3u8Manifest(response.data, targetUrl);
@@ -169,10 +179,9 @@ app.get('/api/proxy-m3u8', async (req, res) => {
 
     const statusCode = error.response ? error.response.status : 502;
     return res.status(statusCode).json({
-      error: 'Failed to fetch M3U8 manifest via proxy server',
+      error: 'Failed to fetch M3U8 manifest',
       details: error.message,
-      code: error.code || 'PROXY_ERROR',
-      proxyUrlConfigured: proxyUrl ? proxyUrl.replace(/:[^:@]+@/, ':****@') : null,
+      code: error.code || 'FETCH_ERROR',
       targetUrl
     });
   }
