@@ -68,7 +68,11 @@ async function handleSegmentRequest(request) {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  if (url.pathname === '/sw-segment') {
+  // If a request hits /sw-m3u8, fallback to /api/m3u8 Next.js Route
+  if (url.pathname === '/sw-m3u8') {
+    const targetUrl = url.searchParams.get('url');
+    event.respondWith(fetch(`${url.origin}/api/m3u8?url=${encodeURIComponent(targetUrl || '')}`));
+  } else if (url.pathname === '/sw-segment') {
     event.respondWith(handleSegmentRequest(event.request));
   }
 });
