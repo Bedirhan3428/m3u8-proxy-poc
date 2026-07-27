@@ -20,8 +20,8 @@ const PRESET_STREAMS = [
 export default function Home() {
   const [inputUrl, setInputUrl] = useState<string>('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
   const [activeUrl, setActiveUrl] = useState<string>('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
-  // Playback modes: 'sw-mode' (Service Worker - 0 Vercel load), '/api/m3u8' (API Proxy), or 'direct'
-  const [playbackMode, setPlaybackMode] = useState<string>('sw-mode');
+  // Set default mode to 'direct' (Doğrudan İstemci Bağlantısı - Kullanıcı IP'si)
+  const [playbackMode, setPlaybackMode] = useState<string>('direct');
 
   const handlePlaySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,14 +51,14 @@ export default function Home() {
           color: 'var(--accent-primary)',
           marginBottom: '1rem'
         }}>
-          <Sparkles size={16} /> Service Worker & Client-Side Interception Player
+          <Sparkles size={16} /> Direct Client Fetch & User IP Stream Player
         </div>
 
         <h1 style={{ fontSize: '2.5rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '0.5rem' }}>
           M3U8 Video Stream <span className="gradient-text">Player</span>
         </h1>
         <p style={{ color: 'var(--text-secondary)', maxWidth: '680px', margin: '0 auto', fontSize: '1rem' }}>
-          Service Worker (`sw.js`) istekleri tarayıcı içinde yakalar, gizli `.jpeg` segmentlerini `video/MP2T` başlıklarıyla tüneller (Vercel Sunucu Yükü: 0 KB).
+          İstekler Vercel sunucusunu tamamen baypas ederek doğrudan **kullanıcının kendi ev/mobil IP adresi** ile atılır.
         </p>
       </header>
 
@@ -91,7 +91,7 @@ export default function Home() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
             <div>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
-                <Cpu size={14} /> İletim Modu (Trafik Kaynağı):
+                <UserCheck size={14} /> İletim Modu (Trafik Kaynağı):
               </label>
               <select
                 className="input-field"
@@ -99,9 +99,8 @@ export default function Home() {
                 value={playbackMode}
                 onChange={(e) => setPlaybackMode(e.target.value)}
               >
-                <option value="sw-mode">⚙️ Service Worker Modu (sw.js - 0 Vercel Yükü, Tarayıcı İçi Çözüm)</option>
-                <option value="/api/m3u8">🛡️ API Proxy Modu (İç Next.js Tüneli)</option>
-                <option value="direct">⚡ Doğrudan İstemci Modu (Kullanıcı IP - CORS'suz CDN'ler)</option>
+                <option value="direct">⚡ Doğrudan İstemci Modu (Kullanıcı IP'si - Önerilen)</option>
+                <option value="/api/m3u8">🛡️ API Proxy Modu (Next.js Sunucu Tüneli)</option>
               </select>
             </div>
 
@@ -144,30 +143,20 @@ export default function Home() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--accent-primary)', marginBottom: '0.5rem' }}>
-              <Cpu size={18} /> 1. Service Worker Modu (`sw.js`)
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--success)', marginBottom: '0.5rem' }}>
+              <UserCheck size={18} /> 1. Doğrudan İstemci Modu (Kullanıcı IP'si)
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              İstekler kullanıcı tarayıcısındaki **Service Worker (`public/sw.js`)** tarafından yakalanır.
-              `.jpeg` gizli parçaları tarayıcı içinde `video/MP2T` başlıklarıyla tünellenir. **Vercel sunucunuza 0 KB yük biner.**
+              `hls.js` video akışını doğrudan sizin **kendi ev/mobil IP adresinizden** çeker. Vercel sunucusunun Datacenter engellerine takılmaz ve sunucuya 0 KB yük biner.
             </p>
           </div>
 
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--info)', marginBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--accent-primary)', marginBottom: '0.5rem' }}>
               <Server size={18} /> 2. API Proxy Modu
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Next.js rotaları (`/api/m3u8` & `/api/segment`) üzerinden sunucu tarafı tüneli sağlar.
-            </p>
-          </div>
-
-          <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--success)', marginBottom: '0.5rem' }}>
-              <UserCheck size={18} /> 3. Doğrudan İstemci Modu
-            </div>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              `hls.js` doğrudan kullanıcı IP'si ile isteği atar.
+              Next.js rotaları (`/api/m3u8` & `/api/segment`) üzerinden Vercel sunucusu tarafında tünelleme sağlar.
             </p>
           </div>
         </div>
