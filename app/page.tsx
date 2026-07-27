@@ -20,8 +20,8 @@ const PRESET_STREAMS = [
 export default function Home() {
   const [inputUrl, setInputUrl] = useState<string>('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
   const [activeUrl, setActiveUrl] = useState<string>('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
-  // Mode selection: 'direct' (User IP / Direct Client Fetch) or '/api/m3u8' (API Proxy)
-  const [playbackMode, setPlaybackMode] = useState<string>('direct');
+  // Playback modes: 'cors-gateway', 'direct', or '/api/m3u8'
+  const [playbackMode, setPlaybackMode] = useState<string>('cors-gateway');
 
   const handlePlaySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,14 +51,14 @@ export default function Home() {
           color: 'var(--accent-primary)',
           marginBottom: '1rem'
         }}>
-          <Sparkles size={16} /> Direct Client Fetch & Proxy Player
+          <Sparkles size={16} /> Client-Side CORS & Stream Player
         </div>
 
         <h1 style={{ fontSize: '2.5rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '0.5rem' }}>
           M3U8 Video Stream <span className="gradient-text">Player</span>
         </h1>
         <p style={{ color: 'var(--text-secondary)', maxWidth: '680px', margin: '0 auto', fontSize: '1rem' }}>
-          İstekler Vercel sunucusuna yük bindirmeden doğrudan **Kullanıcı IP'niz ile İstemci (Frontend)** üzerinden atılır.
+          İstekler Vercel sunucusuna yük bindirmeden istemci tarafında genel CORS tünelleri veya doğrudan CDN üzerinden atılır.
         </p>
       </header>
 
@@ -99,8 +99,9 @@ export default function Home() {
                 value={playbackMode}
                 onChange={(e) => setPlaybackMode(e.target.value)}
               >
-                <option value="direct">⚡ Doğrudan İstemci Modu (Kullanıcı IP - Sunucu Baypas)</option>
-                <option value="/api/m3u8">🛡️ API Proxy Modu (CORS & Gizli Segment Tüneli)</option>
+                <option value="cors-gateway">🌐 İstemci CORS Gateway Modu (0 Vercel Yükü - İstemciden)</option>
+                <option value="direct">⚡ Doğrudan İstemci Modu (Kullanıcı IP - CORS'suz CDN'ler)</option>
+                <option value="/api/m3u8">🛡️ Vercel API Proxy Modu (İç Next.js Tüneli)</option>
               </select>
             </div>
 
@@ -144,30 +145,28 @@ export default function Home() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--success)', marginBottom: '0.5rem' }}>
-              <UserCheck size={18} /> 1. Doğrudan İstemci Modu (Kullanıcı IP)
+              <Globe size={18} /> 1. İstemci CORS Gateway Modu (Önerilen)
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              `hls.js` manifest ve tüm video parçacıklarını doğrudan sizin **kendi tarayıcınızdan ve kendi IP adresinizden** çeker.
-              Vercel sunucusuna kesinlikle yük binmez.
+              İstek genel istemci tünelleri üzerinden atılarak CDN CORS engeli aşılır. **Vercel sunucunuza 0 bayt yük biner.**
             </p>
           </div>
 
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--accent-primary)', marginBottom: '0.5rem' }}>
-              <Server size={18} /> 2. API Proxy Modu
+              <UserCheck size={18} /> 2. Doğrudan İstemci Modu
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Hedef CDN'in CORS engeli uyguladığı durumlarda devreye girer. `/api/m3u8` ve `/api/segment` rotaları üzerinden
-              CORS ve gizli `.jpeg` segmentlerini tüneller.
+              `hls.js` doğrudan kullanıcı IP'si ile isteği atar. CORS başlığı sağlayan CDN'lerde sıfır sunucu yükü ile çalışır.
             </p>
           </div>
 
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--info)', marginBottom: '0.5rem' }}>
-              <Video size={18} /> 3. HLS.js Player
+              <Server size={18} /> 3. Vercel API Proxy Modu
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Adaptive Bitrate (ABR) desteği ile otomatik çözünürlük geçişleri ve akıcı oynatma sunar.
+              İstekleri `/api/m3u8` ve `/api/segment` Next.js rotaları üzerinden tüneller.
             </p>
           </div>
         </div>

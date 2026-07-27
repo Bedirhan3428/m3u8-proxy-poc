@@ -2,11 +2,11 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
-import { Play, Pause, Volume2, VolumeX, Maximize, RefreshCw, Layers, ShieldCheck, Activity, AlertCircle, CheckCircle2, UserCheck, Server } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, RefreshCw, Layers, Activity, AlertCircle, UserCheck, Server, Globe } from 'lucide-react';
 
 interface M3u8PlayerProps {
   originalUrl: string;
-  proxyEndpoint: string; // '/api/m3u8' or 'direct' (direct client fetch using user IP)
+  proxyEndpoint: string;
 }
 
 interface LogEntry {
@@ -29,7 +29,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [levels, setLevels] = useState<LevelOption[]>([]);
-  const [currentLevel, setCurrentLevel] = useState<number>(-1); // -1 = Auto
+  const [currentLevel, setCurrentLevel] = useState<number>(-1);
   const [status, setStatus] = useState<'idle' | 'loading' | 'playing' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -39,19 +39,32 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
     manifestsCount: 0
   });
 
-  const isDirectMode = !proxyEndpoint || proxyEndpoint === 'direct' || proxyEndpoint.trim() === '';
+  const isDirectMode = proxyEndpoint === 'direct';
+  const isCorsGatewayMode = proxyEndpoint === 'cors-gateway';
+  const isApiProxyMode = proxyEndpoint === '/api/m3u8';
 
   const addLog = (type: LogEntry['type'], message: string) => {
     const time = new Date().toLocaleTimeString('tr-TR', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 } as any);
     setLogs(prev => [
       { id: Math.random().toString(36).substring(2, 9), timestamp: time, type, message },
-      ...prev.slice(0, 49) // Keep last 50 logs
+      ...prev.slice(0, 49)
     ]);
   };
 
-  const targetPlaybackUrl = isDirectMode
-    ? originalUrl
-    : (proxyEndpoint.includes('?url=') ? `${proxyEndpoint}${encodeURIComponent(originalUrl)}` : `${proxyEndpoint}?url=${encodeURIComponent(originalUrl)}`);
+  const getTargetPlaybackUrl = (): string => {
+    if (isDirectMode) {
+      return originalUrl;
+    }
+    if (isCorsGatewayMode) {
+      return `https://corsproxy.io/?${encodeURIComponent(originalUrl)}`;
+    }
+    if (proxyEndpoint.includes('?url=')) {
+      return `${proxyEndpoint}${encodeURIComponent(originalUrl)}`;
+    }
+    return `${proxyEndpoint}?url=${encodeURIComponent(originalUrl)}`;
+  };
+
+  const targetPlaybackUrl = getTargetPlaybackUrl();
 
   const initPlayer = () => {
     if (!originalUrl) return;
@@ -62,14 +75,15 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
     setStats({ chunksLoaded: 0, currentBitrate: 0, manifestsCount: 0 });
 
     if (isDirectMode) {
-      addLog('info', `[KULLANICI IP MODU] İstek doğrudan istemci (tarayıcı) tarafından Kullanıcı IP'niz ile atılıyor. Sunucu kullanılmıyor.`);
-      addLog('manifest', `DIRECT CLIENT REQ: ${originalUrl}`);
+      addLog('info', `[DOĞRUDAN İSTEMCİ MODU] İstemci doğrudan hedef CDN tarafına istek atıyor.`);
+    } else if (isCorsGatewayMode) {
+      addLog('info', `[İSTEMCİ CORS GATEWAY MODU] İstek ücretsiz genel CORS tüneli üzerinden atılıyor (Vercel Sunucu Yükü: 0 KB).`);
     } else {
-      addLog('info', `[PROXY MODU] İstek API Proxy üzerinden atılıyor.`);
-      addLog('manifest', `PROXIED REQ: ${targetPlaybackUrl}`);
+      addLog('info', `[API PROXY MODU] İstek Vercel Next.js API rotaları üzerinden tünelleniyor.`);
     }
 
-    // Cleanup previous instance
+    addLog('manifest', `REQ: ${targetPlaybackUrl}`);
+
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
@@ -83,13 +97,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
         debug: false,
         enableWorker: true,
         lowLatencyMode: true,
-        backBufferLength: 60,
-        xhrSetup: (xhr, url) => {
-          // If direct mode, allow cross-origin credentials if supported
-          if (isDirectMode) {
-            xhr.withCredentials = false;
-          }
-        }
+        backBufferLength: 60
       });
 
       hlsRef.current = hls;
@@ -99,7 +107,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
         setStatus('playing');
-        addLog('info', `Manifest başarıyla yüklendi (${data.levels.length} kalite seviyesi tespit edildi).`);
+        addLog('info', `Manifest yüklendi ve çözümlendi (${data.levels.length} kalite seviyesi tespit edildi).`);
         setStats(prev => ({ ...prev, manifestsCount: prev.manifestsCount + 1 }));
 
         const parsedLevels: LevelOption[] = data.levels.map((lvl, index) => ({
@@ -125,7 +133,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
 
       hls.on(Hls.Events.FRAG_LOADING, (_, data) => {
         const chunkUrl = data.frag.relurl || data.frag.url;
-        addLog('chunk', `CLIENT CHUNK REQ (User IP): ${chunkUrl}`);
+        addLog('chunk', `CHUNK REQ: ${chunkUrl}`);
       });
 
       hls.on(Hls.Events.FRAG_LOADED, () => {
@@ -139,19 +147,19 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
 
           let errorDesc = `HATA: ${data.details}`;
           if (isDirectMode && (data.details.includes('manifestLoadError') || data.details.includes('fragLoadError'))) {
-            errorDesc += ' -> Tarayıcınız hedef CDN\'in CORS engeline takıldı. Dilerseniz API Proxy Moduna geçebilirsiniz.';
+            errorDesc += ` -> Hedef CDN sunucusu Access-Control-Allow-Origin başlığı vermediği için tarayıcınız isteği engelledi. Dilerseniz İstemci CORS Gateway veya API Proxy moduna geçebilirsiniz.`;
           }
 
           setErrorMessage(errorDesc);
-          addLog('error', `Kritik Hatası: ${data.details}`);
+          addLog('error', `Kritik HLS Hatası: ${data.details}`);
 
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              addLog('error', 'Ağ hatası oluştu, yeniden deneniyor...');
+              addLog('error', `Ağ hatası oluştu, yeniden deneniyor...`);
               hls.startLoad();
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              addLog('error', 'Medya hatası oluştu, kurtarılıyor...');
+              addLog('error', `Medya hatası oluştu, kurtarılıyor...`);
               hls.recoverMediaError();
               break;
             default:
@@ -164,7 +172,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
       });
 
     } else if (videoNode.canPlayType('application/vnd.apple.mpegurl')) {
-      addLog('info', 'Yerel Safari HLS oynatıcısı kullanılıyor.');
+      addLog('info', `Yerel Safari HLS oynatıcısı kullanılıyor.`);
       videoNode.src = targetPlaybackUrl;
       videoNode.addEventListener('loadedmetadata', () => {
         setStatus('playing');
@@ -172,8 +180,8 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
       });
     } else {
       setStatus('error');
-      setErrorMessage('Bu tarayıcı HLS oynatmayı desteklemiyor.');
-      addLog('error', 'HLS desteksiz tarayıcı.');
+      setErrorMessage(`Bu tarayıcı HLS oynatmayı desteklemiyor.`);
+      addLog('error', `HLS desteksiz tarayıcı.`);
     }
   };
 
@@ -222,12 +230,11 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
-      {/* Video Container Card */}
       <div className="glass-panel" style={{ overflow: 'hidden' }}>
         <div style={{
           position: 'relative',
           width: '100%',
-          paddingTop: '56.25%', // 16:9 Aspect Ratio
+          paddingTop: '56.25%',
           backgroundColor: '#000'
         }}>
           <video
@@ -243,7 +250,6 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
             playsInline
           />
 
-          {/* Loading Overlay */}
           {status === 'loading' && (
             <div style={{
               position: 'absolute',
@@ -258,12 +264,13 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
             }}>
               <RefreshCw className="animate-spin" size={40} style={{ color: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
-                {isDirectMode ? 'Doğrudan İstemci Üzerinden Yükleniyor (Kullanıcı IP)...' : 'API Proxy Üzerinden Yükleniyor...'}
+                {isDirectMode && 'Doğrudan İstemci Üzerinden Yükleniyor...'}
+                {isCorsGatewayMode && 'İstemci CORS Gateway Üzerinden Yükleniyor (0 Sunucu Yükü)...'}
+                {isApiProxyMode && 'API Proxy Üzerinden Yükleniyor...'}
               </p>
             </div>
           )}
 
-          {/* Error Overlay */}
           {status === 'error' && (
             <div style={{
               position: 'absolute',
@@ -287,7 +294,6 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
           )}
         </div>
 
-        {/* Video Control Bar */}
         <div style={{
           padding: '1rem 1.5rem',
           display: 'flex',
@@ -308,7 +314,6 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-            {/* Quality Selector */}
             {levels.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <Layers size={16} style={{ color: 'var(--text-secondary)' }} />
@@ -343,7 +348,6 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
         </div>
       </div>
 
-      {/* Traffic Diagnostics & Live Logs Panel */}
       <div className="glass-panel" style={{ padding: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <h3 style={{ fontSize: '1.1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -352,19 +356,24 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
           </h3>
 
           <div style={{ display: 'flex', gap: '0.75rem' }}>
-            {isDirectMode ? (
+            {isDirectMode && (
               <span className="badge badge-success">
                 <UserCheck size={12} /> İstemci (Kullanıcı IP): Doğrudan CDN
               </span>
-            ) : (
+            )}
+            {isCorsGatewayMode && (
               <span className="badge badge-info">
-                <Server size={12} /> Proxy Modu: Aktif
+                <Globe size={12} /> İstemci CORS Gateway (0 Vercel Yükü)
+              </span>
+            )}
+            {isApiProxyMode && (
+              <span className="badge badge-warning">
+                <Server size={12} /> API Proxy Modu: Aktif
               </span>
             )}
           </div>
         </div>
 
-        {/* Stats Grid */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -377,7 +386,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
               {stats.manifestsCount}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-              {isDirectMode ? '(Tarayıcı ➔ CDN)' : '(Proxy Üzerinden)'}
+              {isDirectMode ? '(Tarayıcı ➔ CDN)' : (isCorsGatewayMode ? '(CORS Gateway)' : '(Next.js API)')}
             </div>
           </div>
 
@@ -387,7 +396,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
               {stats.chunksLoaded}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-              (Kullanıcı IP İle Doğrudan)
+              (Kullanıcı İstemcisi)
             </div>
           </div>
 
@@ -402,7 +411,6 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
           </div>
         </div>
 
-        {/* Live Logs Terminal Output */}
         <div style={{
           background: '#07090e',
           border: '1px solid var(--border-color)',
