@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export const maxDuration = 60; // Max execution time for Vercel Serverless
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 function buildProxyUrl(targetAbsoluteUrl: string, proxyBaseUrl: string): string {
@@ -76,20 +76,32 @@ export async function GET(request: NextRequest) {
   const protocol = request.headers.get('x-forwarded-proto') || 'https';
   const proxyBaseUrl = `${protocol}://${host}`;
 
+  const fetchHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Accept': '*/*',
+    'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Referer': `${parsedUrl.origin}/`
+  };
+
   try {
-    const res = await fetch(targetUrl, {
+    let res = await fetch(targetUrl, {
       method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Referer': `${parsedUrl.origin}/`,
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'cross-site'
-      },
+      headers: fetchHeaders,
       cache: 'no-store'
     });
+
+    // Fallback if target CDN blocks with 403 or 404 (retry with full target URL as Referer)
+    if (!res.ok && (res.status === 403 || res.status === 404 || res.status === 503)) {
+      console.warn(`[WAF-RETRY] Target ${targetUrl} returned status ${res.status}. Retrying with full Referer...`);
+      res = await fetch(targetUrl, {
+        method: 'GET',
+        headers: {
+          ...fetchHeaders,
+          'Referer': targetUrl
+        },
+        cache: 'no-store'
+      });
+    }
 
     if (!res.ok) {
       return NextResponse.json({
@@ -106,7 +118,7 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'application/vnd.apple.mpegurl',
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS, HEAD',
         'Access-Control-Allow-Headers': '*',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
@@ -116,7 +128,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     return NextResponse.json({
-      error: 'Failed to fetch M3U8 manifest on Vercel',
+      error: 'Failed to fetch M3U8 manifest',
       details: error.message,
       targetUrl
     }, { status: 502 });

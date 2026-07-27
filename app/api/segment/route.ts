@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export const maxDuration = 60; // Max execution time for Vercel Serverless
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
@@ -18,27 +18,37 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid target URL format provided.' }, { status: 400 });
   }
 
-  const headers: Record<string, string> = {
+  const fetchHeaders: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
     'Accept': '*/*',
     'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Referer': `${parsedUrl.origin}/`,
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'cross-site'
+    'Referer': `${parsedUrl.origin}/`
   };
 
   const rangeHeader = request.headers.get('range');
   if (rangeHeader) {
-    headers['Range'] = rangeHeader;
+    fetchHeaders['Range'] = rangeHeader;
   }
 
   try {
-    const res = await fetch(targetUrl, {
+    let res = await fetch(targetUrl, {
       method: 'GET',
-      headers,
+      headers: fetchHeaders,
       cache: 'no-store'
     });
+
+    // Fallback if target CDN blocks with 403 or 404 (retry with full target URL as Referer)
+    if (!res.ok && res.status !== 206 && (res.status === 403 || res.status === 404 || res.status === 503)) {
+      console.warn(`[SEGMENT-WAF-RETRY] Target ${targetUrl} returned status ${res.status}. Retrying with full Referer...`);
+      res = await fetch(targetUrl, {
+        method: 'GET',
+        headers: {
+          ...fetchHeaders,
+          'Referer': targetUrl
+        },
+        cache: 'no-store'
+      });
+    }
 
     if (!res.ok && res.status !== 206) {
       return NextResponse.json({
