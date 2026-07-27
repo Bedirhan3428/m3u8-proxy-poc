@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const maxDuration = 60; // Max execution time for Vercel Serverless
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const targetUrl = searchParams.get('url');
@@ -20,7 +23,9 @@ export async function GET(request: NextRequest) {
     'Accept': '*/*',
     'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
     'Referer': `${parsedUrl.origin}/`,
-    'Origin': parsedUrl.origin
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'cross-site'
   };
 
   const rangeHeader = request.headers.get('range');
@@ -46,7 +51,7 @@ export async function GET(request: NextRequest) {
     // Force Content-Type to video/MP2T so HLS player receives proper MPEG-TS stream
     responseHeaders.set('Content-Type', 'video/MP2T');
     responseHeaders.set('Access-Control-Allow-Origin', '*');
-    responseHeaders.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    responseHeaders.set('Access-Control-Allow-Methods', 'GET, OPTIONS, HEAD');
     responseHeaders.set('Access-Control-Allow-Headers', '*');
 
     const contentLength = res.headers.get('content-length');
@@ -65,7 +70,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     return NextResponse.json({
-      error: 'Failed to fetch segment',
+      error: 'Failed to fetch segment on Vercel',
       details: error.message,
       targetUrl
     }, { status: 502 });

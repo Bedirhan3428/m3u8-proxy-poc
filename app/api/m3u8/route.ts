@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const maxDuration = 60; // Max execution time for Vercel Serverless
+export const dynamic = 'force-dynamic';
+
 function buildProxyUrl(targetAbsoluteUrl: string, proxyBaseUrl: string): string {
   try {
     const urlObj = new URL(targetAbsoluteUrl);
@@ -70,7 +73,7 @@ export async function GET(request: NextRequest) {
   }
 
   const host = request.headers.get('host') || 'localhost:3000';
-  const protocol = request.headers.get('x-forwarded-proto') || 'http';
+  const protocol = request.headers.get('x-forwarded-proto') || 'https';
   const proxyBaseUrl = `${protocol}://${host}`;
 
   try {
@@ -78,10 +81,12 @@ export async function GET(request: NextRequest) {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-        'Accept': '*/*',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
         'Referer': `${parsedUrl.origin}/`,
-        'Origin': parsedUrl.origin
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site'
       },
       cache: 'no-store'
     });
@@ -101,6 +106,8 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'application/vnd.apple.mpegurl',
         'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
         'Expires': '0'
@@ -109,7 +116,7 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     return NextResponse.json({
-      error: 'Failed to fetch M3U8 manifest',
+      error: 'Failed to fetch M3U8 manifest on Vercel',
       details: error.message,
       targetUrl
     }, { status: 502 });
