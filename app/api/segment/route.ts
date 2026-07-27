@@ -18,45 +18,58 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid target URL format provided.' }, { status: 400 });
   }
 
-  const fetchHeaders: Record<string, string> = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    'Accept': '*/*',
-    'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Referer': `${parsedUrl.origin}/`
-  };
-
   const rangeHeader = request.headers.get('range');
+
+  const headerSets: Record<string, string>[] = [
+    {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Referer': `${parsedUrl.origin}/`
+    },
+    {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Referer': targetUrl
+    },
+    {
+      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+      'Accept': '*/*'
+    }
+  ];
+
   if (rangeHeader) {
-    fetchHeaders['Range'] = rangeHeader;
+    headerSets.forEach(h => {
+      h['Range'] = rangeHeader;
+    });
+  }
+
+  let res: Response | null = null;
+  let lastStatus = 500;
+
+  for (const headers of headerSets) {
+    try {
+      res = await fetch(targetUrl, {
+        method: 'GET',
+        headers,
+        cache: 'no-store'
+      });
+
+      if (res.ok || res.status === 206) break;
+      lastStatus = res.status;
+    } catch (e) {
+      // Continue to next set
+    }
+  }
+
+  if (!res || (!res.ok && res.status !== 206)) {
+    return NextResponse.json({
+      error: `Failed to fetch video segment (Status: ${lastStatus})`,
+      targetUrl
+    }, { status: lastStatus });
   }
 
   try {
-    let res = await fetch(targetUrl, {
-      method: 'GET',
-      headers: fetchHeaders,
-      cache: 'no-store'
-    });
-
-    // Fallback if target CDN blocks with 403 or 404 (retry with full target URL as Referer)
-    if (!res.ok && res.status !== 206 && (res.status === 403 || res.status === 404 || res.status === 503)) {
-      console.warn(`[SEGMENT-WAF-RETRY] Target ${targetUrl} returned status ${res.status}. Retrying with full Referer...`);
-      res = await fetch(targetUrl, {
-        method: 'GET',
-        headers: {
-          ...fetchHeaders,
-          'Referer': targetUrl
-        },
-        cache: 'no-store'
-      });
-    }
-
-    if (!res.ok && res.status !== 206) {
-      return NextResponse.json({
-        error: `Failed to fetch video segment (Status: ${res.status})`,
-        targetUrl
-      }, { status: res.status });
-    }
-
     const responseHeaders = new Headers();
     // Force Content-Type to video/MP2T so HLS player receives proper MPEG-TS stream
     responseHeaders.set('Content-Type', 'video/MP2T');
