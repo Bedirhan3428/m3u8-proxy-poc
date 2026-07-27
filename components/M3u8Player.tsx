@@ -2,11 +2,11 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
-import { Play, Pause, Volume2, VolumeX, Maximize, RefreshCw, Layers, ShieldCheck, Activity, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, RefreshCw, Layers, ShieldCheck, Activity, AlertCircle, CheckCircle2, UserCheck, Server } from 'lucide-react';
 
 interface M3u8PlayerProps {
   originalUrl: string;
-  proxyEndpoint: string;
+  proxyEndpoint: string; // '/api/m3u8' or 'direct' (direct client fetch using user IP)
 }
 
 interface LogEntry {
@@ -36,8 +36,10 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
   const [stats, setStats] = useState({
     chunksLoaded: 0,
     currentBitrate: 0,
-    proxyManifestsCount: 0
+    manifestsCount: 0
   });
+
+  const isDirectMode = !proxyEndpoint || proxyEndpoint === 'direct' || proxyEndpoint.trim() === '';
 
   const addLog = (type: LogEntry['type'], message: string) => {
     const time = new Date().toLocaleTimeString('tr-TR', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 } as any);
@@ -47,7 +49,9 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
     ]);
   };
 
-  const proxiedUrl = `${proxyEndpoint}?url=${encodeURIComponent(originalUrl)}`;
+  const targetPlaybackUrl = isDirectMode
+    ? originalUrl
+    : (proxyEndpoint.includes('?url=') ? `${proxyEndpoint}${encodeURIComponent(originalUrl)}` : `${proxyEndpoint}?url=${encodeURIComponent(originalUrl)}`);
 
   const initPlayer = () => {
     if (!originalUrl) return;
@@ -55,10 +59,15 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
     setStatus('loading');
     setErrorMessage(null);
     setLevels([]);
-    setStats({ chunksLoaded: 0, currentBitrate: 0, proxyManifestsCount: 0 });
+    setStats({ chunksLoaded: 0, currentBitrate: 0, manifestsCount: 0 });
 
-    addLog('info', `İstek başlatıldı. Proxy Endpoint: ${proxyEndpoint}`);
-    addLog('manifest', `PROXIED MANIFEST REQ: ${proxiedUrl}`);
+    if (isDirectMode) {
+      addLog('info', `[KULLANICI IP MODU] İstek doğrudan istemci (tarayıcı) tarafından Kullanıcı IP'niz ile atılıyor. Sunucu kullanılmıyor.`);
+      addLog('manifest', `DIRECT CLIENT REQ: ${originalUrl}`);
+    } else {
+      addLog('info', `[PROXY MODU] İstek API Proxy üzerinden atılıyor.`);
+      addLog('manifest', `PROXIED REQ: ${targetPlaybackUrl}`);
+    }
 
     // Cleanup previous instance
     if (hlsRef.current) {
@@ -74,18 +83,24 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
         debug: false,
         enableWorker: true,
         lowLatencyMode: true,
-        backBufferLength: 60
+        backBufferLength: 60,
+        xhrSetup: (xhr, url) => {
+          // If direct mode, allow cross-origin credentials if supported
+          if (isDirectMode) {
+            xhr.withCredentials = false;
+          }
+        }
       });
 
       hlsRef.current = hls;
 
-      hls.loadSource(proxiedUrl);
+      hls.loadSource(targetPlaybackUrl);
       hls.attachMedia(videoNode);
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
         setStatus('playing');
-        addLog('info', `Manifest başarıyla yüklendi ve çözümlendi (${data.levels.length} yayın seviyesi bulundu).`);
-        setStats(prev => ({ ...prev, proxyManifestsCount: prev.proxyManifestsCount + 1 }));
+        addLog('info', `Manifest başarıyla yüklendi (${data.levels.length} kalite seviyesi tespit edildi).`);
+        setStats(prev => ({ ...prev, manifestsCount: prev.manifestsCount + 1 }));
 
         const parsedLevels: LevelOption[] = data.levels.map((lvl, index) => ({
           index,
@@ -103,18 +118,17 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
       hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
         const levelObj = hls.levels[data.level];
         if (levelObj) {
-          addLog('info', `Yayın Kalitesi Değiştirildi: ${levelObj.height || 'Auto'}p (${(levelObj.bitrate / 1000).toFixed(0)} kbps)`);
+          addLog('info', `Kalite Seviyesi: ${levelObj.height || 'Auto'}p (${(levelObj.bitrate / 1000).toFixed(0)} kbps)`);
           setStats(prev => ({ ...prev, currentBitrate: levelObj.bitrate }));
         }
       });
 
-      // Track TS chunk loading from target CDN
       hls.on(Hls.Events.FRAG_LOADING, (_, data) => {
         const chunkUrl = data.frag.relurl || data.frag.url;
-        addLog('chunk', `DIRECT CDN CHUNK REQ: ${chunkUrl}`);
+        addLog('chunk', `CLIENT CHUNK REQ (User IP): ${chunkUrl}`);
       });
 
-      hls.on(Hls.Events.FRAG_LOADED, (_, data) => {
+      hls.on(Hls.Events.FRAG_LOADED, () => {
         setStats(prev => ({ ...prev, chunksLoaded: prev.chunksLoaded + 1 }));
       });
 
@@ -122,16 +136,22 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
         if (data.fatal) {
           console.error('Fatal HLS error:', data);
           setStatus('error');
-          setErrorMessage(`FATAL ERROR: ${data.details}`);
-          addLog('error', `Kritik HLS Hatası: ${data.details}`);
+
+          let errorDesc = `HATA: ${data.details}`;
+          if (isDirectMode && (data.details.includes('manifestLoadError') || data.details.includes('fragLoadError'))) {
+            errorDesc += ' -> Tarayıcınız hedef CDN\'in CORS engeline takıldı. Dilerseniz API Proxy Moduna geçebilirsiniz.';
+          }
+
+          setErrorMessage(errorDesc);
+          addLog('error', `Kritik Hatası: ${data.details}`);
 
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              addLog('error', 'Ağ hatası oluştu, yeniden bağlanılıyor...');
+              addLog('error', 'Ağ hatası oluştu, yeniden deneniyor...');
               hls.startLoad();
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
-              addLog('error', 'Medya hatası oluştu, kurtarılmaya çalışılıyor...');
+              addLog('error', 'Medya hatası oluştu, kurtarılıyor...');
               hls.recoverMediaError();
               break;
             default:
@@ -144,16 +164,15 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
       });
 
     } else if (videoNode.canPlayType('application/vnd.apple.mpegurl')) {
-      // Native HLS support (Safari)
-      addLog('info', 'Hls.js desteklenmiyor, yerel Safari HLS oynatıcısı kullanılıyor.');
-      videoNode.src = proxiedUrl;
+      addLog('info', 'Yerel Safari HLS oynatıcısı kullanılıyor.');
+      videoNode.src = targetPlaybackUrl;
       videoNode.addEventListener('loadedmetadata', () => {
         setStatus('playing');
         videoNode.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
       });
     } else {
       setStatus('error');
-      setErrorMessage('Bu tarayıcı HLS (M3U8) oynatmayı desteklemiyor.');
+      setErrorMessage('Bu tarayıcı HLS oynatmayı desteklemiyor.');
       addLog('error', 'HLS desteksiz tarayıcı.');
     }
   };
@@ -238,7 +257,9 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
               gap: '1rem'
             }}>
               <RefreshCw className="animate-spin" size={40} style={{ color: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>Manifest Türkiye Proxy Üzerinden Çekiliyor...</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+                {isDirectMode ? 'Doğrudan İstemci Üzerinden Yükleniyor (Kullanıcı IP)...' : 'API Proxy Üzerinden Yükleniyor...'}
+              </p>
             </div>
           )}
 
@@ -258,7 +279,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
             }}>
               <AlertCircle size={48} style={{ color: 'var(--danger)' }} />
               <h3 style={{ color: 'var(--danger)', fontSize: '1.2rem', fontWeight: 600 }}>Akış Başlatılamadı</h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: '500px' }}>{errorMessage}</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: '550px' }}>{errorMessage}</p>
               <button className="btn-secondary" onClick={initPlayer}>
                 <RefreshCw size={16} /> Tekrar Deneyin
               </button>
@@ -327,16 +348,19 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <h3 style={{ fontSize: '1.1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Activity size={20} style={{ color: 'var(--accent-primary)' }} />
-            Trafik ve Akış Analizi (PoC Verification)
+            Trafik ve İstemci Analizi (Client Network)
           </h3>
 
           <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <span className="badge badge-success">
-              <ShieldCheck size={12} /> Manifest Proxy: Aktif
-            </span>
-            <span className="badge badge-info">
-              <CheckCircle2 size={12} /> TS Segmentler: Doğrudan CDN
-            </span>
+            {isDirectMode ? (
+              <span className="badge badge-success">
+                <UserCheck size={12} /> İstemci (Kullanıcı IP): Doğrudan CDN
+              </span>
+            ) : (
+              <span className="badge badge-info">
+                <Server size={12} /> Proxy Modu: Aktif
+              </span>
+            )}
           </div>
         </div>
 
@@ -348,12 +372,12 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
           marginBottom: '1.5rem'
         }}>
           <div style={{ background: 'var(--bg-surface)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Proxy Manifest İstekleri</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Manifest İstekleri</div>
             <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-primary)', marginTop: '0.2rem' }}>
-              {stats.proxyManifestsCount}
+              {stats.manifestsCount}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-              (Backend Node.js Üzerinden)
+              {isDirectMode ? '(Tarayıcı ➔ CDN)' : '(Proxy Üzerinden)'}
             </div>
           </div>
 
@@ -363,7 +387,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
               {stats.chunksLoaded}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-              (Doğrudan İstemci ➔ CDN)
+              (Kullanıcı IP İle Doğrudan)
             </div>
           </div>
 
@@ -396,9 +420,9 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
           ) : (
             logs.map(log => {
               let color = 'var(--text-secondary)';
-              if (log.type === 'manifest') color = '#a855f7'; // Purple for Proxy Manifest
-              if (log.type === 'chunk') color = '#10b981'; // Green for Direct CDN Chunk
-              if (log.type === 'error') color = '#ef4444'; // Red for Errors
+              if (log.type === 'manifest') color = '#a855f7';
+              if (log.type === 'chunk') color = '#10b981';
+              if (log.type === 'error') color = '#ef4444';
 
               return (
                 <div key={log.id} style={{ display: 'flex', gap: '0.75rem', marginBottom: '0.35rem', lineHeight: '1.4' }}>
@@ -410,16 +434,6 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
           )}
         </div>
       </div>
-
-      <style jsx global>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .animate-spin {
-          animation: spin 1s linear infinite;
-        }
-      `}</style>
     </div>
   );
 };

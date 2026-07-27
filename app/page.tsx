@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { M3u8Player } from '../components/M3u8Player';
-import { Play, Video, Server, Globe, Link2, Sparkles, Info } from 'lucide-react';
+import { Play, Video, Server, Globe, Link2, Sparkles, Info, UserCheck } from 'lucide-react';
 
 const PRESET_STREAMS = [
   {
@@ -20,7 +20,8 @@ const PRESET_STREAMS = [
 export default function Home() {
   const [inputUrl, setInputUrl] = useState<string>('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
   const [activeUrl, setActiveUrl] = useState<string>('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
-  const [proxyBackendUrl, setProxyBackendUrl] = useState<string>('/api/m3u8');
+  // Mode selection: 'direct' (User IP / Direct Client Fetch) or '/api/m3u8' (API Proxy)
+  const [playbackMode, setPlaybackMode] = useState<string>('direct');
 
   const handlePlaySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,15 +51,14 @@ export default function Home() {
           color: 'var(--accent-primary)',
           marginBottom: '1rem'
         }}>
-          <Sparkles size={16} /> Next.js Full-Stack App Router Proxy Architecture
+          <Sparkles size={16} /> Direct Client Fetch & Proxy Player
         </div>
 
         <h1 style={{ fontSize: '2.5rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '0.5rem' }}>
           M3U8 Video Stream <span className="gradient-text">Player</span>
         </h1>
         <p style={{ color: 'var(--text-secondary)', maxWidth: '680px', margin: '0 auto', fontSize: '1rem' }}>
-          Next.js App Router API rotaları (`/api/m3u8` & `/api/segment`) üzerinden harici Node.js sunucusuna ihtiyaç duymadan
-          M3U8 manifest ve gizli segment parçalarını tüneller.
+          İstekler Vercel sunucusuna yük bindirmeden doğrudan **Kullanıcı IP'niz ile İstemci (Frontend)** üzerinden atılır.
         </p>
       </header>
 
@@ -87,20 +87,21 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Backend Proxy Endpoint Configuration */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
+          {/* Mode Selector */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
             <div>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
-                <Server size={14} /> Internal API Proxy Endpoint:
+                <UserCheck size={14} /> İletim Modu (Trafik Kaynağı):
               </label>
-              <input
-                type="text"
+              <select
                 className="input-field"
-                style={{ fontSize: '0.85rem', padding: '0.55rem 0.85rem' }}
-                value={proxyBackendUrl}
-                onChange={(e) => setProxyBackendUrl(e.target.value)}
-                required
-              />
+                style={{ fontSize: '0.85rem', padding: '0.55rem 0.85rem', cursor: 'pointer' }}
+                value={playbackMode}
+                onChange={(e) => setPlaybackMode(e.target.value)}
+              >
+                <option value="direct">⚡ Doğrudan İstemci Modu (Kullanıcı IP - Sunucu Baypas)</option>
+                <option value="/api/m3u8">🛡️ API Proxy Modu (CORS & Gizli Segment Tüneli)</option>
+              </select>
             </div>
 
             {/* Presets List */}
@@ -130,43 +131,43 @@ export default function Home() {
       <section style={{ marginBottom: '2.5rem' }}>
         <M3u8Player
           originalUrl={activeUrl}
-          proxyEndpoint={proxyBackendUrl}
+          proxyEndpoint={playbackMode}
         />
       </section>
 
       {/* Architecture Explanation Card */}
       <section className="glass-panel" style={{ padding: '1.75rem' }}>
         <h2 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Info size={20} style={{ color: 'var(--accent-primary)' }} /> Mimari Çalışma Mantığı ve Teknik Akış
+          <Info size={20} style={{ color: 'var(--accent-primary)' }} /> İletim Modları ve Çalışma Şekli
         </h2>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--accent-primary)', marginBottom: '0.5rem' }}>
-              <Server size={18} /> 1. Next.js App Router `/api/m3u8`
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--success)', marginBottom: '0.5rem' }}>
+              <UserCheck size={18} /> 1. Doğrudan İstemci Modu (Kullanıcı IP)
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Master `.m3u8` manifest isteğini `/api/m3u8` endpoint'ine atar.
-              Manifest içindeki `.jpeg`, `.png`, `.ts` gizli parçaları `/api/segment` endpoint'ine rewritelar.
+              `hls.js` manifest ve tüm video parçacıklarını doğrudan sizin **kendi tarayıcınızdan ve kendi IP adresinizden** çeker.
+              Vercel sunucusuna kesinlikle yük binmez.
             </p>
           </div>
 
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--success)', marginBottom: '0.5rem' }}>
-              <Globe size={18} /> 2. Next.js App Router `/api/segment`
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--accent-primary)', marginBottom: '0.5rem' }}>
+              <Server size={18} /> 2. API Proxy Modu
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Segment isteklerini indirir ve Content-Type başlığını `video/MP2T` olarak tarayıcıya iletir.
-              Harici Node.js sunucusuna gerek kalmaz.
+              Hedef CDN'in CORS engeli uyguladığı durumlarda devreye girer. `/api/m3u8` ve `/api/segment` rotaları üzerinden
+              CORS ve gizli `.jpeg` segmentlerini tüneller.
             </p>
           </div>
 
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--info)', marginBottom: '0.5rem' }}>
-              <Video size={18} /> 3. HLS.js HTML5 Player
+              <Video size={18} /> 3. HLS.js Player
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Adaptive Bitrate Streaming (ABR) desteği sayesinde çözünürlük geçişleri ve oynatma sağlanır.
+              Adaptive Bitrate (ABR) desteği ile otomatik çözünürlük geçişleri ve akıcı oynatma sunar.
             </p>
           </div>
         </div>
