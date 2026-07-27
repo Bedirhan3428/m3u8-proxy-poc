@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { M3u8Player } from '../components/M3u8Player';
-import { Play, Video, Server, Globe, Link2, Sparkles, CheckCircle, Info } from 'lucide-react';
+import { Play, Video, Server, Globe, Link2, Sparkles, Info } from 'lucide-react';
 
 const PRESET_STREAMS = [
   {
@@ -14,11 +14,6 @@ const PRESET_STREAMS = [
     name: 'Apple Basic Stream',
     url: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8',
     description: 'Apple test CDN üzerinden standart HLS akışı'
-  },
-  {
-    name: 'Akamai Advanced Stream',
-    url: 'https://akamai-a2048.gvt1.com/videoplayback/id/da8e45300e8bcbb6/itag/0/source/gvs/requi/yes/ratebypass/yes/live/1/mdev/1/sver/3/os/1/gcr/tr/ip/0.0.0.0/ipbits/0/expire/1700000000/sparams/id,itag,source,requi,ratebypass,live,mdev,sver,os,gcr,ip,ipbits,expire/signature/sample.m3u8',
-    description: 'Özel proxy / geoblock testi için örnek URL'
   }
 ];
 
@@ -55,15 +50,15 @@ export default function Home() {
           color: 'var(--accent-primary)',
           marginBottom: '1rem'
         }}>
-          <Sparkles size={16} /> Proof of Concept (PoC) Architecture
+          <Sparkles size={16} /> Next.js Full-Stack App Router Proxy Architecture
         </div>
 
         <h1 style={{ fontSize: '2.5rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '0.5rem' }}>
-          M3U8 Video Stream <span className="gradient-text">Proxy Player</span>
+          M3U8 Video Stream <span className="gradient-text">Player</span>
         </h1>
         <p style={{ color: 'var(--text-secondary)', maxWidth: '680px', margin: '0 auto', fontSize: '1rem' }}>
-          Node.js/Express Türkiye Proxy Backend üzerinden Master M3U8 çeker, `.ts` video parçalarını
-          doğrudan hedef CDN'den client-side (`hls.js`) olarak oynatır.
+          Next.js App Router API rotaları (`/api/m3u8` & `/api/segment`) üzerinden harici Node.js sunucusuna ihtiyaç duymadan
+          M3U8 manifest ve gizli segment parçalarını tüneller.
         </p>
       </header>
 
@@ -96,7 +91,7 @@ export default function Home() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
             <div>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
-                <Server size={14} /> Express Proxy Backend Endpoint:
+                <Server size={14} /> Internal API Proxy Endpoint:
               </label>
               <input
                 type="text"
@@ -148,22 +143,21 @@ export default function Home() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--accent-primary)', marginBottom: '0.5rem' }}>
-              <Server size={18} /> 1. Express Proxy Backend
+              <Server size={18} /> 1. Next.js App Router `/api/m3u8`
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Frontend tarafı Master `.m3u8` manifest isteğini `/api/proxy-m3u8?url=...` endpoint'ine atar.
-              Node.js sunucusu Türkiye IP'li HTTP/SOCKS5 proxy üzerinden manifest dosyasını indirir.
-              Göreli (relative) `.ts` ve alt playlist yollarını CDN mutlak URL'lerine dönüştürür.
+              Master `.m3u8` manifest isteğini `/api/m3u8` endpoint'ine atar.
+              Manifest içindeki `.jpeg`, `.png`, `.ts` gizli parçaları `/api/segment` endpoint'ine rewritelar.
             </p>
           </div>
 
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--success)', marginBottom: '0.5rem' }}>
-              <Globe size={18} /> 2. Client-Side Chunk Delivery
+              <Globe size={18} /> 2. Next.js App Router `/api/segment`
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              `hls.js` manifest'i çözümler ve video parçacıklarını (`.ts` chunks) doğrudan hedef CDN'e istek
-              atarak çeker. Backend proxy sunucusu video bandwidth trafiğinden tamamen baypas edilir.
+              Segment isteklerini indirir ve Content-Type başlığını `video/MP2T` olarak tarayıcıya iletir.
+              Harici Node.js sunucusuna gerek kalmaz.
             </p>
           </div>
 
@@ -172,8 +166,7 @@ export default function Home() {
               <Video size={18} /> 3. HLS.js HTML5 Player
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Adaptive Bitrate Streaming (ABR) desteği sayesinde bant genişliğine göre otomatik veya manuel
-              çözünürlük (1080p, 720p, 480p) geçişleri gerçekleştirir.
+              Adaptive Bitrate Streaming (ABR) desteği sayesinde çözünürlük geçişleri ve oynatma sağlanır.
             </p>
           </div>
         </div>
