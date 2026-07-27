@@ -15,7 +15,8 @@ function buildProxyUrl(targetAbsoluteUrl: string, proxyBaseUrl: string): string 
     return targetAbsoluteUrl;
   }
 
-  return `${proxyBaseUrl}/api/segment?url=${encodeURIComponent(targetAbsoluteUrl)}`;
+  // Route video segment chunks to /sw-segment (Service Worker - 0 Server Load)
+  return `${proxyBaseUrl}/sw-segment?url=${encodeURIComponent(targetAbsoluteUrl)}`;
 }
 
 function rewriteM3u8Manifest(manifestText: string, targetUrl: string, proxyBaseUrl: string): string {
@@ -90,9 +91,7 @@ export async function GET(request: NextRequest) {
       cache: 'no-store'
     });
 
-    // Fallback if target CDN blocks with 403 or 404 (retry with full target URL as Referer)
     if (!res.ok && (res.status === 403 || res.status === 404 || res.status === 503)) {
-      console.warn(`[WAF-RETRY] Target ${targetUrl} returned status ${res.status}. Retrying with full Referer...`);
       res = await fetch(targetUrl, {
         method: 'GET',
         headers: {
