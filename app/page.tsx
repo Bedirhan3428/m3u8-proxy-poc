@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { M3u8Player } from '../components/M3u8Player';
-import { Play, Video, Server, Globe, Link2, Sparkles, Info, UserCheck } from 'lucide-react';
+import { Play, Video, Server, Globe, Link2, Sparkles, Info, Cpu, UserCheck } from 'lucide-react';
 
 const PRESET_STREAMS = [
   {
@@ -20,8 +20,8 @@ const PRESET_STREAMS = [
 export default function Home() {
   const [inputUrl, setInputUrl] = useState<string>('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
   const [activeUrl, setActiveUrl] = useState<string>('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
-  // Set default mode to '/api/m3u8' (API Proxy) for guaranteed CORS & disguised segment bypass
-  const [playbackMode, setPlaybackMode] = useState<string>('/api/m3u8');
+  // Playback modes: 'sw-mode' (Service Worker - 0 Vercel load), '/api/m3u8' (API Proxy), or 'direct'
+  const [playbackMode, setPlaybackMode] = useState<string>('sw-mode');
 
   const handlePlaySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,14 +51,14 @@ export default function Home() {
           color: 'var(--accent-primary)',
           marginBottom: '1rem'
         }}>
-          <Sparkles size={16} /> Next.js API Proxy Stream Player
+          <Sparkles size={16} /> Service Worker & Client-Side Interception Player
         </div>
 
         <h1 style={{ fontSize: '2.5rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '0.5rem' }}>
           M3U8 Video Stream <span className="gradient-text">Player</span>
         </h1>
         <p style={{ color: 'var(--text-secondary)', maxWidth: '680px', margin: '0 auto', fontSize: '1rem' }}>
-          Next.js API rotaları (`/api/m3u8` & `/api/segment`) üzerinden M3U8 ve gizli `.jpeg` segment parçalarını tüneller.
+          Service Worker (`sw.js`) istekleri tarayıcı içinde yakalar, gizli `.jpeg` segmentlerini `video/MP2T` başlıklarıyla tüneller (Vercel Sunucu Yükü: 0 KB).
         </p>
       </header>
 
@@ -91,7 +91,7 @@ export default function Home() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border-color)' }}>
             <div>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 500, marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
-                <UserCheck size={14} /> İletim Modu (Trafik Kaynağı):
+                <Cpu size={14} /> İletim Modu (Trafik Kaynağı):
               </label>
               <select
                 className="input-field"
@@ -99,9 +99,9 @@ export default function Home() {
                 value={playbackMode}
                 onChange={(e) => setPlaybackMode(e.target.value)}
               >
-                <option value="/api/m3u8">🛡️ API Proxy Modu (Önerilen - CORS & Gizli Segment Tüneli)</option>
+                <option value="sw-mode">⚙️ Service Worker Modu (sw.js - 0 Vercel Yükü, Tarayıcı İçi Çözüm)</option>
+                <option value="/api/m3u8">🛡️ API Proxy Modu (İç Next.js Tüneli)</option>
                 <option value="direct">⚡ Doğrudan İstemci Modu (Kullanıcı IP - CORS'suz CDN'ler)</option>
-                <option value="cors-gateway">🌐 Genel İstemci CORS Gateway Modu</option>
               </select>
             </div>
 
@@ -145,28 +145,29 @@ export default function Home() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--accent-primary)', marginBottom: '0.5rem' }}>
-              <Server size={18} /> 1. API Proxy Modu (Önerilen)
+              <Cpu size={18} /> 1. Service Worker Modu (`sw.js`)
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              `/api/m3u8` ve `/api/segment` Next.js rotaları üzerinden CORS engellerini ve gizli `.jpeg` parçalarını tüneller.
-            </p>
-          </div>
-
-          <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--success)', marginBottom: '0.5rem' }}>
-              <UserCheck size={18} /> 2. Doğrudan İstemci Modu
-            </div>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              `hls.js` doğrudan kullanıcı IP'si ile isteği atar. CORS başlığı sağlayan açık CDN'lerde çalışır.
+              İstekler kullanıcı tarayıcısındaki **Service Worker (`public/sw.js`)** tarafından yakalanır.
+              `.jpeg` gizli parçaları tarayıcı içinde `video/MP2T` başlıklarıyla tünellenir. **Vercel sunucunuza 0 KB yük biner.**
             </p>
           </div>
 
           <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--info)', marginBottom: '0.5rem' }}>
-              <Globe size={18} /> 3. Genel CORS Gateway
+              <Server size={18} /> 2. API Proxy Modu
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Genel istemci proxy tünelleri üzerinden isteği iletir.
+              Next.js rotaları (`/api/m3u8` & `/api/segment`) üzerinden sunucu tarafı tüneli sağlar.
+            </p>
+          </div>
+
+          <div style={{ background: 'var(--bg-surface)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--success)', marginBottom: '0.5rem' }}>
+              <UserCheck size={18} /> 3. Doğrudan İstemci Modu
+            </div>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              `hls.js` doğrudan kullanıcı IP'si ile isteği atar.
             </p>
           </div>
         </div>

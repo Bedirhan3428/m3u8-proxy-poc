@@ -2,11 +2,11 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
-import { Play, Pause, Volume2, VolumeX, Maximize, RefreshCw, Layers, Activity, AlertCircle, UserCheck, Server, Globe } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, RefreshCw, Layers, Activity, AlertCircle, UserCheck, Server, Cpu } from 'lucide-react';
 
 interface M3u8PlayerProps {
   originalUrl: string;
-  proxyEndpoint: string;
+  proxyEndpoint: string; // 'sw-mode', 'direct', or '/api/m3u8'
 }
 
 interface LogEntry {
@@ -33,6 +33,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
   const [status, setStatus] = useState<'idle' | 'loading' | 'playing' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [swReady, setSwReady] = useState<boolean>(false);
   const [stats, setStats] = useState({
     chunksLoaded: 0,
     currentBitrate: 0,
@@ -40,7 +41,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
   });
 
   const isDirectMode = proxyEndpoint === 'direct';
-  const isCorsGatewayMode = proxyEndpoint === 'cors-gateway';
+  const isSwMode = proxyEndpoint === 'sw-mode';
   const isApiProxyMode = proxyEndpoint === '/api/m3u8';
 
   const addLog = (type: LogEntry['type'], message: string) => {
@@ -51,13 +52,27 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
     ]);
   };
 
+  // Register Service Worker on mount
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then((reg) => {
+          setSwReady(true);
+          addLog('info', `Service Worker yerel tarayıcınızda kayıt edildi ve aktif.`);
+        })
+        .catch((err) => {
+          console.warn('Service worker registration failed:', err);
+          addLog('error', `Service Worker kaydı başarısız: ${err.message}`);
+        });
+    }
+  }, []);
+
   const getTargetPlaybackUrl = (): string => {
     if (isDirectMode) {
       return originalUrl;
     }
-    if (isCorsGatewayMode) {
-      // Use standard corsproxy.io with url= query param
-      return `https://corsproxy.io/?url=${encodeURIComponent(originalUrl)}`;
+    if (isSwMode) {
+      return `/sw-m3u8?url=${encodeURIComponent(originalUrl)}`;
     }
     if (proxyEndpoint.includes('?url=')) {
       return `${proxyEndpoint}${encodeURIComponent(originalUrl)}`;
@@ -77,8 +92,8 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
 
     if (isDirectMode) {
       addLog('info', `[DOĞRUDAN İSTEMCİ MODU] İstemci doğrudan hedef CDN tarafına istek atıyor.`);
-    } else if (isCorsGatewayMode) {
-      addLog('info', `[İSTEMCİ CORS GATEWAY MODU] İstek ücretsiz genel CORS tüneli üzerinden atılıyor (Vercel Sunucu Yükü: 0 KB).`);
+    } else if (isSwMode) {
+      addLog('info', `[SERVICE WORKER MODU] İstek tarayıcı içi Service Worker (sw.js) üzerinden yakalanıyor (Vercel Sunucu Yükü: 0 KB).`);
     } else {
       addLog('info', `[API PROXY MODU] İstek Vercel Next.js API rotaları üzerinden tünelleniyor.`);
     }
@@ -147,10 +162,8 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
           setStatus('error');
 
           let errorDesc = `HATA: ${data.details}`;
-          if (isCorsGatewayMode) {
-            errorDesc += ` -> CorsProxy tüneli bağlantısı sıfırlandı veya ISP engeline takıldı. Lütfen 'API Proxy Modu'na geçiniz.`;
-          } else if (isDirectMode && (data.details.includes('manifestLoadError') || data.details.includes('fragLoadError'))) {
-            errorDesc += ` -> Hedef CDN sunucusu Access-Control-Allow-Origin başlığı vermediği için tarayıcınız isteği engelledi. Dilerseniz API Proxy moduna geçebilirsiniz.`;
+          if (isDirectMode && (data.details.includes('manifestLoadError') || data.details.includes('fragLoadError'))) {
+            errorDesc += ` -> Hedef CDN sunucusu Access-Control-Allow-Origin başlığı vermediği için tarayıcınız isteği engelledi. Dilerseniz Service Worker veya API Proxy moduna geçebilirsiniz.`;
           }
 
           setErrorMessage(errorDesc);
@@ -268,7 +281,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
               <RefreshCw className="animate-spin" size={40} style={{ color: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
                 {isDirectMode && 'Doğrudan İstemci Üzerinden Yükleniyor...'}
-                {isCorsGatewayMode && 'İstemci CORS Gateway Üzerinden Yükleniyor (0 Sunucu Yükü)...'}
+                {isSwMode && 'Service Worker Üzerinden Tarayıcı İçinde Yükleniyor (0 Sunucu Yükü)...'}
                 {isApiProxyMode && 'API Proxy Üzerinden Yükleniyor...'}
               </p>
             </div>
@@ -364,9 +377,9 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
                 <UserCheck size={12} /> İstemci (Kullanıcı IP): Doğrudan CDN
               </span>
             )}
-            {isCorsGatewayMode && (
+            {isSwMode && (
               <span className="badge badge-info">
-                <Globe size={12} /> İstemci CORS Gateway (0 Vercel Yükü)
+                <Cpu size={12} /> Service Worker Modu (0 Vercel Yükü)
               </span>
             )}
             {isApiProxyMode && (
@@ -389,7 +402,7 @@ export const M3u8Player: React.FC<M3u8PlayerProps> = ({ originalUrl, proxyEndpoi
               {stats.manifestsCount}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-              {isDirectMode ? '(Tarayıcı ➔ CDN)' : (isCorsGatewayMode ? '(CORS Gateway)' : '(Next.js API)')}
+              {isDirectMode ? '(Tarayıcı ➔ CDN)' : (isSwMode ? '(sw.js Intercept)' : '(Next.js API)')}
             </div>
           </div>
 
