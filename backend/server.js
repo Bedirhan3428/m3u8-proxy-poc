@@ -171,6 +171,8 @@ app.get('/api/proxy-m3u8', async (req, res) => {
     return res.status(statusCode).json({
       error: 'Failed to fetch M3U8 manifest via proxy server',
       details: error.message,
+      code: error.code || 'PROXY_ERROR',
+      proxyUrlConfigured: proxyUrl ? proxyUrl.replace(/:[^:@]+@/, ':****@') : null,
       targetUrl
     });
   }
